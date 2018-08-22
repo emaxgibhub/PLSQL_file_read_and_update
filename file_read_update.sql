@@ -17,24 +17,123 @@ https://sql-exercises.edu.pl/category/oracle-sql/zaawansowany-oracle/
     TYPE file_records IS
         TABLE OF file_record INDEX BY BINARY_INTEGER;
     l_records    file_records;--:= file_records() ;
-
-
-/****used in only first part of program*****/
- l_in_file    utl_file.file_type;
- l_buffer     VARCHAR2(1000);
-  TYPE tmp_str_tbl IS
-        TABLE OF VARCHAR2(1000) INDEX BY BINARY_INTEGER;
-    l_tmp_str    tmp_str_tbl;
+    
+     fr file_record ;
+    
+    SUBTYPE file_line IS VARCHAR2(1000);
+    
+    TYPE file_lines 
+     IS
+        TABLE OF file_line INDEX BY BINARY_INTEGER;
+        
+    l_lines    file_lines ; 
+    
+    function fn_file_to_lines (
+    p_dir         IN VARCHAR2,
+    p_file_name   IN VARCHAR2
+    )
+    return file_lines 
+    IS 
+    l_lines file_lines ;
+    l_in_file    utl_file.file_type;
+    begin
+      l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
+     LOOP
+        BEGIN
+            utl_file.get_line(l_in_file,l_lines(l_lines.COUNT+1));
+    EXCEPTION
+            WHEN no_data_found THEN
+                EXIT;
+        END;
+          END LOOP;
+    utl_file.fclose ( l_in_file ); 
+      
+    return l_lines;
+    
+    end fn_file_to_lines ;
+    
+    
+    
+  
+    function fn_line_to_record (
+    p_line file_line,
+    p_delimiter CHAR DEFAULT ';'
+    )
+    return file_record 
+    IS 
+    fr file_record ;
+    l_buffer file_line;
     l_del_idx    BINARY_INTEGER := 0;
-   
+    
+     TYPE tmp_str_tbl 
+     IS
+        TABLE OF VARCHAR2(1000) INDEX BY BINARY_INTEGER;
+       l_tmp_str    tmp_str_tbl;
+       
+       
+    BEGIN
+    l_buffer := p_line;
+    --       /*finding the two first words separated by ;*/
+     FOR i IN 1..2 LOOP
+     l_del_idx := instr(l_buffer,p_delimiter,1);
+     IF ( l_del_idx > 0 ) THEN
+      l_tmp_str(i) := substr(l_buffer,1,l_del_idx - 1);
+                    IF ( l_del_idx + 1 < length(l_buffer) ) THEN
+                        l_buffer := substr(l_buffer,l_del_idx + 1);
+                    END IF;
 
-BEGIN
-l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
+                ELSE
+                    l_tmp_str(i) := l_buffer;
+                END IF;
+
+      END LOOP;
+     /*type convertion -- need to make it a subprogram*/ 
+     fr.id_prac := l_tmp_str(1);
+     fr.new_premia := l_tmp_str(2);
+     
+     
+    return fr ;
+    
+     EXCEPTION
+        WHEN value_error THEN
+             dbms_output.put_line('Error type convertion. Line '
+                                           || l_idx
+                                           || 'was not processed !');
+              --  WHEN OTHERS THEN
+                --    RAISE;
+        
+  
+    --EXCEPTION
+   
+    end fn_line_to_record;
+    
+    
+    
+
+/**procedure file to array
+   PROCEDURE file_to_array
+   (
+    p_dir         IN VARCHAR2,
+    p_file_name   IN VARCHAR2,
+    p_delimiter   IN CHAR DEFAULT ';',
+    l_records    IN OUT file_records
+    )
+    IS
+      l_in_file    utl_file.file_type;
+      l_buffer     VARCHAR2(1000);
+     TYPE tmp_str_tbl 
+     IS
+        TABLE OF VARCHAR2(1000) INDEX BY BINARY_INTEGER;
+       l_tmp_str    tmp_str_tbl;
+      l_del_idx    BINARY_INTEGER := 0;
+   
+      begin 
+          l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
     LOOP
         BEGIN
             utl_file.get_line(l_in_file,l_buffer);
             
---       /*finding the two first words separated by ;*/
+
             FOR i IN 1..2 LOOP
                 l_del_idx := instr(l_buffer,p_delimiter,1);
                 IF ( l_del_idx > 0 ) THEN
@@ -49,7 +148,7 @@ l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
 
             END LOOP;
 
-/*type convertion -- need to make it a subprogram*/
+
 
             BEGIN
                 l_records(l_idx).id_prac := l_tmp_str(1);
@@ -63,7 +162,7 @@ l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
                     RAISE;
             END;
             
-/****************************************************************/
+
             dbms_output.put_line(l_buffer
                                    || '  - '
                                    || l_records(l_idx).id_prac
@@ -76,8 +175,30 @@ l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
         END;
     END LOOP;
     utl_file.fclose ( l_in_file ); 
-    
-    /*all file lines are processed; now updating the table   */ 
+      
+          
+      END file_to_array;
+      
+
+***/
+ 
+
+BEGIN
+
+l_lines :=fn_file_to_lines(p_dir, p_file_name);
+
+For i in 1..l_lines.count 
+loop
+--l_records (i) :=fn_line_to_record( l_lines(i));
+fr := fn_line_to_record( l_lines(i));
+UPDATE t_pracownicy p
+SET premia = fr.new_premia
+WHERE p.id_prac = fr.id_prac;
+
+--DBMS_OUTPUT.PUT_LINE (l_lines(i));
+end loop;
+
+ /*all file lines are processed; now updating the table   */ 
     
   
     
