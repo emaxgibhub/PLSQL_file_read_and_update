@@ -8,8 +8,7 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
     p_dir         IN VARCHAR2,
     p_file_name   IN VARCHAR2,
     p_delimiter   IN CHAR DEFAULT ';',
-    p_logging IN BOoLEAN DEFAULT TRUE,
-    p_log_file_name varchar2 DEFAULT 'export_log.txt'
+    p_log_file_name varchar2 DEFAULT 'import_log.txt'
 ) IS
 
     CURSOR cur IS SELECT
@@ -31,7 +30,22 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
     l_words     f_lines;
     
     in_file_not_exist EXCEPTION;
+    
+    l_log_file   utl_file.file_type;
+    l_log_line f_line;
 
+
+/******************LOGGING*****************************/
+PROCEDURE log_message(p_message varchar2,
+        p_log_file  utl_file.file_type DEFAULT l_log_file )
+IS
+begin
+
+if utl_file.is_open(p_log_file) then 
+utl_file.put_line(p_log_file,p_message); else 
+dbms_output.put_line(p_message);
+end if;
+end ;
 
 /**********CHECKING IF FILE EXISTS**************************/
 FUNCTION fn_is_file_exist(
@@ -147,12 +161,26 @@ end;
 BEGIN
 
    /*checking if file exists*/
-    if  fn_is_file_exist(p_dir,p_file_name) then 
+    if  fn_is_file_exist(p_dir,p_file_name)=FALSE then 
     RAISE in_file_not_exist;
     end if ;
   
     l_lines := fn_file_to_lines(p_dir,p_file_name);
+    rec_idx:=1; 
      
+    /***open file for logging***************************/ 
+    begin
+    l_log_file := utl_file.fopen(p_dir,p_log_file_name,'A');
+    EXCEPTION when others then
+    dbms_output.put_line('Error occurred while creating log file. Logging into DBMS_OUTPUT....');   
+    end; 
+    
+    if (utl_file.is_open(l_log_file)=false)
+          then
+          dbms_output.put_line('Error occurred while creating log file. Logging into DBMS_OUTPUT....');    
+         end if;
+         
+     log_message('Import attemp started form file '||p_file_name||' on  '||to_char(SYSDATE,'yyyy-mm-dd hh24:mi:ss'));
      
     FOR i IN 1..l_lines.count LOOP
         l_words := fn_line_to_words(l_lines(i),2);
@@ -161,34 +189,47 @@ BEGIN
         temp_rec.new_premia := fn_to_number(l_words(2) );
         
         if (temp_rec.id_prac Is NULL OR temp_rec.new_premia IS NULL) then
-          dbms_output.put_line('Line #' || i|| ' was ignored due to invalid type of data: '||l_lines(i)|| '.
-          Check line and try again...');
+          l_log_line:='Line #' || i|| ' was ignored due to invalid type of data: '||l_lines(i)|| '.
+          Check line and try again...';
+          
+          log_message(l_log_line );
+          
         else 
         l_records (rec_idx):= temp_rec;
-        dbms_output.put_line('Line #' || rec_idx|| ' was processed: '||l_lines(i));
+        l_log_line:='Line #' || rec_idx|| ' was processed: '||l_lines(i);
+       
+        log_message(l_log_line );
+       
         rec_idx:=rec_idx+1;
         end if;
-        
-
     END LOOP;
     
   
   
-  FORALL i IN 0 .. l_records.COUNT-1
+  FORALL i IN 1 .. l_records.COUNT
       UPDATE t_pracownicy SET premia = l_records (i).new_premia
        WHERE id_prac = l_records (i).id_prac;
        
-       dbms_output.put_line(SQL%ROWCOUNT || ' lines were updated from file '); 
-
-       
+        l_log_line:=SQL%ROWCOUNT || ' lines were updated from file ';
+        
+       log_message(l_log_line );
     commit;   
-    
+ 
+   utl_file.fclose(l_log_file)   ;
     
 EXCEPTION
 
-    WHEN utl_file.invalid_operation THEN dbms_output.put_line( 'Invalid file operation. Try again....');
-    WHEN in_file_not_exist then dbms_output.put_line('File for processing doesnt exist. Check the file path...');
+    WHEN utl_file.invalid_operation THEN log_message(SQLERRM); --log_message( 'The file could not be opened or operated on as requested');
+     if utl_file.is_open(l_log_file) then
+        utl_file.fclose(l_log_file) ;end if;
+    WHEN in_file_not_exist then log_message('File for processing doesnt exist. Check the file path...');
+     if utl_file.is_open(l_log_file) then
+        utl_file.fclose(l_log_file) ;end if;
     WHEN OTHERS THEN
         ROLLBACK;
-        dbms_output.put_line('Error ' ||SQLERRM||' .File wasnt processed. Try again.... ');
+        l_log_line:='Error ' ||SQLERRM||' .File wasnt processed. Try again.... ';
+        log_message(l_log_line);
+        if utl_file.is_open(l_log_file) then
+        utl_file.fclose(l_log_file) ;end if;
+      
 END update_bonus_from_file;
