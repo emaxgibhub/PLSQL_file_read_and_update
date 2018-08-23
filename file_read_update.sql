@@ -172,7 +172,7 @@ BEGIN
     begin
     l_log_file := utl_file.fopen(p_dir,p_log_file_name,'A');
     EXCEPTION when others then
-    dbms_output.put_line('Error occurred while creating log file. Logging into DBMS_OUTPUT....');   
+    dbms_output.put_line('Error occurred while creating log file. Logging into DBMS_OUTPUT....'||SQLERRM);   
     end; 
     
     if (utl_file.is_open(l_log_file)=false)
