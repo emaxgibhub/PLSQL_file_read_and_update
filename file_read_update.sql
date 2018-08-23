@@ -7,7 +7,9 @@ https://sql-exercises.edu.pl/category/oracle-sql/zaawansowany-oracle/
 CREATE OR REPLACE PROCEDURE update_bonus_from_file (
     p_dir         IN VARCHAR2,
     p_file_name   IN VARCHAR2,
-    p_delimiter   IN CHAR DEFAULT ';'
+    p_delimiter   IN CHAR DEFAULT ';',
+    p_logging IN BOoLEAN DEFAULT TRUE,
+    p_log_file_name varchar2 DEFAULT 'export_log.txt'
 ) IS
 
     CURSOR cur IS SELECT
@@ -27,6 +29,39 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
         TABLE OF f_line INDEX BY BINARY_INTEGER;
     l_lines     f_lines;
     l_words     f_lines;
+    
+    in_file_not_exist EXCEPTION;
+
+
+/**********CHECKING IF FILE EXISTS**************************/
+FUNCTION fn_is_file_exist(
+   p_dir         IN VARCHAR2,
+        p_file_name   IN VARCHAR2
+) RETURN boolean
+IS 
+l_fexists boolean;
+l_file_length PLS_INTEGER;
+   l_block_size PLS_INTEGER;
+Begin
+ UTL_FILE.fgetattr ( LOCATION         => p_file_name
+                     , filename         =>  p_dir
+                     , fexists          => l_fexists
+                     , file_length      => l_file_length
+                     , block_size       => l_block_size
+                     );
+                     
+  IF l_fexists IS NULL AND l_file_length = 0 AND l_block_size = 0
+   THEN
+      RETURN FALSE;
+   ELSE
+      RETURN TRUE;
+   END IF;
+   
+exception when others then
+return false;
+RAISE;
+end;
+
 
 /*********FROM FILE TO COLLECTION OF LINES **********************/
 
@@ -36,7 +71,12 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
     ) RETURN f_lines IS
         l_lines     f_lines;
         l_in_file   utl_file.file_type;
+        
+        
     BEGIN
+   
+        
+       
         l_in_file := utl_file.fopen(p_dir,p_file_name,'r');
         LOOP
             BEGIN
@@ -44,6 +84,11 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
             EXCEPTION
                 WHEN no_data_found THEN
                     EXIT;
+                WHEN OTHERS THEN 
+                 IF UTL_FILE.IS_OPEN(l_in_file ) THEN
+                  UTL_FILE.FCLOSE (l_in_file );
+                  END IF;
+                RAISE;  
             END;
         END LOOP;
 
@@ -100,7 +145,15 @@ CREATE OR REPLACE PROCEDURE update_bonus_from_file (
     END;
 
 BEGIN
+
+   /*checking if file exists*/
+    if  fn_is_file_exist(p_dir,p_file_name) then 
+    RAISE in_file_not_exist;
+    end if ;
+  
     l_lines := fn_file_to_lines(p_dir,p_file_name);
+     
+     
     FOR i IN 1..l_lines.count LOOP
         l_words := fn_line_to_words(l_lines(i),2);
      
@@ -112,7 +165,7 @@ BEGIN
           Check line and try again...');
         else 
         l_records (rec_idx):= temp_rec;
-        dbms_output.put_line('Line #' || rec_idx|| ' was prosseded: '||l_lines(i));
+        dbms_output.put_line('Line #' || rec_idx|| ' was processed: '||l_lines(i));
         rec_idx:=rec_idx+1;
         end if;
         
@@ -132,13 +185,9 @@ BEGIN
     
     
 EXCEPTION
-/*
-  EXCEPTION
-        WHEN value_error THEN
-            dbms_output.put_line('Error type convertion. Line '
-                                   || p_line_idx
-                                   || 'was not processed !');
-*/
+
+    WHEN utl_file.invalid_operation THEN dbms_output.put_line( 'Invalid file operation. Try again....');
+    WHEN in_file_not_exist then dbms_output.put_line('File for processing doesnt exist. Check the file path...');
     WHEN OTHERS THEN
         ROLLBACK;
         dbms_output.put_line('Error ' ||SQLERRM||' .File wasnt processed. Try again.... ');
